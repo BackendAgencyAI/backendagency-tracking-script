@@ -103,9 +103,15 @@
     function sendToSgtm(data) {
       if (!data || !data.event) return;
 
-      var eventId = data.gtm ? data.gtm.uniqueEventId : (data.event + JSON.stringify(data));
-      if (sentEvents.has(eventId)) return;
-      sentEvents.add(eventId);
+var eventId = data['gtm.uniqueEventId'];
+
+if (!eventId) {
+    eventId = (data.event || 'unknown_event') + '_' + Math.random().toString(36).substring(2, 10);
+}
+
+
+if (sentEvents.has(eventId)) return; 
+sentEvents.add(eventId);
 
       var eventMap = { 
         'gtm.js': 'page_view', 
