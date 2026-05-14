@@ -141,12 +141,23 @@ sentEvents.add(eventId);
       params.push('ep.tenant_id=' + encodeURIComponent(tenantId));
 
       // --- ECOMMERCE WAARDEN ---
-      var tid = findKey(data, 'transaction_id') || findKey(data, 'transactionId');
-      var val = findKey(data, 'value') || findKey(data, 'revenue');
-      var cur = findKey(data, 'currency') || 'EUR';
+      // --- ECOMMERCE WAARDEN ---
+      var ecommerceObj = data.ecommerce || {};
+      
+      // Ondersteuning voor Universal Analytics (GA3) structuur
+      var uaActionField = (ecommerceObj.purchase && ecommerceObj.purchase.actionField) ? ecommerceObj.purchase.actionField : {};
+
+      // Zoek transaction ID (Direct in root, in GA4 ecommerce, in GA3 actionField, of via findKey)
+      var tid = data.transaction_id || ecommerceObj.transaction_id || uaActionField.id || findKey(data, 'transaction_id') || findKey(data, 'transactionId');
+      
+      // Zoek Value (Direct in root, in GA4 ecommerce, in GA3 actionField, of via findKey)
+      var val = data.value || ecommerceObj.value || uaActionField.revenue || findKey(data, 'value') || findKey(data, 'revenue');
+      
+      // Zoek Currency
+      var cur = data.currency || ecommerceObj.currency || 'EUR';
 
       if (tid) params.push('ep.transaction_id=' + encodeURIComponent(tid));
-      if (val !== null) params.push('epn.value=' + formatNum(val));
+      if (val !== null && val !== undefined) params.push('epn.value=' + formatNum(val));
       if (cur) params.push('cu=' + encodeURIComponent(cur));
 
       // --- ITEM EXTRACTIE ---
