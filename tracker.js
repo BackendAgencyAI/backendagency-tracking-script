@@ -16,24 +16,13 @@
     var isPaused = false;
 
     // --- HELPERS ---
-    function findKey(obj, key, depth) {
-      // Begin op diepte 0 als er niks is meegegeven
-      depth = depth || 0;
-      
-      // Beveiliging 1: Stop na 5 levels diep om oneindige loops te voorkomen
-      if (depth > 5) return null; 
-      
+    function findKey(obj, key) {
       if (!obj || typeof obj !== 'object') return null;
-      
-      // Beveiliging 2: Sla HTML elementen (DOM nodes) en Window objecten over!
-      // Dit voorkomt crashes bij form submits (Gravity Forms)
-      if (typeof obj.nodeType === 'number' || obj === window) return null;
-
       if (obj[key] !== undefined) return obj[key];
-      
       for (var k in obj) {
-        if (obj.hasOwnProperty(k) && typeof obj[k] === 'object') {
-          var found = findKey(obj[k], key, depth + 1);
+        // Fix: Gebruik Object.prototype om de TypeError te voorkomen
+        if (Object.prototype.hasOwnProperty.call(obj, k) && typeof obj[k] === 'object') {
+          var found = findKey(obj[k], key);
           if (found !== null) return found;
         }
       }
@@ -146,7 +135,6 @@ sentEvents.add(eventId);
       params.push('ep.tenant_id=' + encodeURIComponent(tenantId));
 
       // --- ECOMMERCE WAARDEN ---
-      // --- ECOMMERCE WAARDEN ---
       var ecommerceObj = data.ecommerce || {};
       
       // Ondersteuning voor Universal Analytics (GA3) structuur
@@ -210,12 +198,13 @@ sentEvents.add(eventId);
           });
       }
 
-      // --- DUAL TRACKING: GA4 + BIGQUERY ---
+     // --- DUAL TRACKING: GA4 + BIGQUERY ---
       var skip = ['event', 'gtm', 'ecommerce', 'eventModel', 'items', 'eventCallback', 'eventTimeout', 'eventSettingsTable', 'user', 'breadcrumb', 'debug_firestore_test'];
       var bqData = {}; 
 
       for (var key in data) {
-        if (data.hasOwnProperty(key) && skip.indexOf(key) === -1) {
+        // Fix: Veilige call gebruiken
+        if (Object.prototype.hasOwnProperty.call(data, key) && skip.indexOf(key) === -1) {
           var v = data[key];
           if (v !== null && typeof v !== 'object' && !Array.isArray(v)) {
             params.push(((!isNaN(v) && !isNaN(parseFloat(v))) ? 'epn.' : 'ep.') + key + '=' + encodeURIComponent(v));
