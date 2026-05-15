@@ -16,24 +16,29 @@
     var isPaused = false;
 
     // --- HELPERS ---
-    function findKey(obj, key) {
+    function findKey(obj, key, depth) {
+      // Begin op diepte 0 als er niks is meegegeven
+      depth = depth || 0;
+      
+      // Beveiliging 1: Stop na 5 levels diep om oneindige loops te voorkomen
+      if (depth > 5) return null; 
+      
       if (!obj || typeof obj !== 'object') return null;
+      
+      // Beveiliging 2: Sla HTML elementen (DOM nodes) en Window objecten over!
+      // Dit voorkomt crashes bij form submits (Gravity Forms)
+      if (typeof obj.nodeType === 'number' || obj === window) return null;
+
       if (obj[key] !== undefined) return obj[key];
+      
       for (var k in obj) {
         if (obj.hasOwnProperty(k) && typeof obj[k] === 'object') {
-          var found = findKey(obj[k], key);
+          var found = findKey(obj[k], key, depth + 1);
           if (found !== null) return found;
         }
       }
       return null;
     }
-
-    function formatNum(val) { 
-      if (val === undefined || val === null || val === "") return 0;
-      var num = parseFloat(String(val).replace(',', '.'));
-      return isNaN(num) ? 0 : num;
-    }
-
     // --- COOKIE HELPERS ---
     function setCookie(name, value, minutes) {
       var expires = "";
