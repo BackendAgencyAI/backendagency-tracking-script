@@ -16,13 +16,22 @@
     var isPaused = false;
 
     // --- HELPERS ---
-    function findKey(obj, key) {
+    function findKey(obj, key, depth) {
+      // Houd de diepte bij. Stop na 5 niveaus om oneindige loops te voorkomen.
+      depth = depth || 0;
+      if (depth > 5) return null; 
+
       if (!obj || typeof obj !== 'object') return null;
+
+      // CRUCIAAL: Negeer HTML/DOM elementen (nodeType) en het Window object.
+      // Dit voorkomt dat het script de hele browser laat vastlopen.
+      if (typeof obj.nodeType !== 'undefined' || obj === window) return null;
+
       if (obj[key] !== undefined) return obj[key];
+      
       for (var k in obj) {
-        // Fix: Gebruik Object.prototype om de TypeError te voorkomen
         if (Object.prototype.hasOwnProperty.call(obj, k) && typeof obj[k] === 'object') {
-          var found = findKey(obj[k], key);
+          var found = findKey(obj[k], key, depth + 1);
           if (found !== null) return found;
         }
       }
