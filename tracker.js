@@ -11,20 +11,18 @@
         return;
     }
 
-    var sentEvents = new Set();
+    // AANGEPAST: Set() vervangen door een Array voor oude browsers
+    var sentEvents = [];
     var lastEventTime = Date.now();
     var isPaused = false;
 
     // --- HELPERS ---
     function findKey(obj, key, depth) {
-      // Houd de diepte bij. Stop na 5 niveaus om oneindige loops te voorkomen.
       depth = depth || 0;
       if (depth > 5) return null; 
 
       if (!obj || typeof obj !== 'object') return null;
 
-      // CRUCIAAL: Negeer HTML/DOM elementen (nodeType) en het Window object.
-      // Dit voorkomt dat het script de hele browser laat vastlopen.
       if (typeof obj.nodeType !== 'undefined' || obj === window) return null;
 
       if (obj[key] !== undefined) return obj[key];
@@ -37,6 +35,7 @@
       }
       return null;
     }
+    
     // --- COOKIE HELPERS ---
     function setCookie(name, value, minutes) {
       var expires = "";
@@ -60,7 +59,7 @@
       return null;
     }
 
-    // --- CLIENT ID & SESSIE BEHEER (Aangepast naar backendagency) ---
+    // --- CLIENT ID & SESSIE BEHEER ---
     var clientId = (function() {
       var savedCid = getCookie('_backendagency_cid');
       if (savedCid) return savedCid;
@@ -75,21 +74,18 @@
       if (!newCid) {
         newCid = Math.random().toString(36).substring(2) + '.' + Date.now();
       }
-      // Sla de ID op voor 2 jaar
       setCookie('_backendagency_cid', newCid, 1051200); 
       return newCid;
     })();
 
-    // Sessie ID ophalen of nieuw aanmaken
     var sessionId = getCookie('_backendagency_sess_id');
     var isNewSession = false;
     if (!sessionId) {
       sessionId = Math.floor(Date.now() / 1000).toString();
       isNewSession = true;
     }
-    setCookie('_backendagency_sess_id', sessionId, 30); // Verleng met 30 min
+    setCookie('_backendagency_sess_id', sessionId, 30);
 
-    // Sessie Count ophalen of ophogen
     var sessionCount = getCookie('_backendagency_sess_count') || "1";
     if (isNewSession) {
       var prevCount = parseInt(getCookie('_backendagency_sess_count') || "0");
@@ -106,15 +102,15 @@
     function sendToSgtm(data) {
       if (!data || !data.event) return;
 
-var eventId = data['gtm.uniqueEventId'];
+      var eventId = data['gtm.uniqueEventId'];
 
-if (!eventId) {
-    eventId = (data.event || 'unknown_event') + '_' + Math.random().toString(36).substring(2, 10);
-}
+      if (!eventId) {
+          eventId = (data.event || 'unknown_event') + '_' + Math.random().toString(36).substring(2, 10);
+      }
 
-
-if (sentEvents.has(eventId)) return; 
-sentEvents.add(eventId);
+      // AANGEPAST: Array check in plaats van Set.has()
+      if (sentEvents.indexOf(eventId) > -1) return; 
+      sentEvents.push(eventId);
 
       var eventMap = { 
         'gtm.js': 'page_view', 
@@ -125,7 +121,6 @@ sentEvents.add(eventId);
       
       var eventName = eventMap[data.event] || data.event;
       
-      // Negeer dom ready en window load om dubbele pageviews te voorkomen
       if (['gtm.dom', 'gtm.load'].indexOf(eventName) > -1) return;
 
       var params = [
@@ -145,17 +140,10 @@ sentEvents.add(eventId);
 
       // --- ECOMMERCE WAARDEN ---
       var ecommerceObj = data.ecommerce || {};
-      
-      // Ondersteuning voor Universal Analytics (GA3) structuur
       var uaActionField = (ecommerceObj.purchase && ecommerceObj.purchase.actionField) ? ecommerceObj.purchase.actionField : {};
 
-      // Zoek transaction ID (Direct in root, in GA4 ecommerce, in GA3 actionField, of via findKey)
       var tid = data.transaction_id || ecommerceObj.transaction_id || uaActionField.id || findKey(data, 'transaction_id') || findKey(data, 'transactionId');
-      
-      // Zoek Value (Direct in root, in GA4 ecommerce, in GA3 actionField, of via findKey)
       var val = data.value || ecommerceObj.value || uaActionField.revenue || findKey(data, 'value') || findKey(data, 'revenue');
-      
-      // Zoek Currency
       var cur = data.currency || ecommerceObj.currency || 'EUR';
 
       if (tid) params.push('ep.transaction_id=' + encodeURIComponent(tid));
@@ -207,12 +195,11 @@ sentEvents.add(eventId);
           });
       }
 
-     // --- DUAL TRACKING: GA4 + BIGQUERY ---
+     // --- DUAL TRACKING ---
       var skip = ['event', 'gtm', 'ecommerce', 'eventModel', 'items', 'eventCallback', 'eventTimeout', 'eventSettingsTable', 'user', 'breadcrumb', 'debug_firestore_test'];
       var bqData = {}; 
 
       for (var key in data) {
-        // Fix: Veilige call gebruiken
         if (Object.prototype.hasOwnProperty.call(data, key) && skip.indexOf(key) === -1) {
           var v = data[key];
           if (v !== null && typeof v !== 'object' && !Array.isArray(v)) {
@@ -230,13 +217,30 @@ sentEvents.add(eventId);
 
       // --- VERZENDING ---
       var fullUrl = serverBaseUrl.replace(/\/$/, "") + '/g/collect?' + params.join('&');
-      if (navigator.sendBeacon) { navigator.sendBeacon(fullUrl); } 
-      else { fetch(fullUrl, { method: 'GET', mode: 'no-cors', keepalive: true }); }
+      
+      // AANGEPAST: XMLHttpRequest fallback voor oude browsers toegevoegd als sendBeacon en fetch falen
+      if (navigator.sendBeacon) { 
+          navigator.sendBeacon(fullUrl); 
+      } else if (window.fetch) { 
+          fetch(fullUrl, { method: 'GET', mode: 'no-cors', keepalive: true }); 
+      } else {
+          try {
+              var xhr = new XMLHttpRequest();
+              xhr.open('GET', fullUrl, true);
+              xhr.send();
+          } catch (e) {} // Silent fail als netwerk zwaar verouderd is
+      }
       lastEventTime = Date.now();
     }
 
     // --- AUTO-TRACKERS ---
+
+    // AANGEPAST: Bestaande YouTube scripts niet meer weggooien
+    var existingYTReady = window.onYouTubeIframeAPIReady;
     window.onYouTubeIframeAPIReady = function() {
+        if (typeof existingYTReady === 'function') {
+            existingYTReady();
+        }
         var frames = document.getElementsByTagName('iframe');
         for (var i = 0; i < frames.length; i++) {
             if (frames[i].src.indexOf('youtube.com') > -1) {
@@ -253,7 +257,13 @@ sentEvents.add(eventId);
     }
 
     document.addEventListener('click', function(e) {
-        var a = e.target.closest('a'); if (!a || !a.href) return;
+        // AANGEPAST: Vervanger voor .closest() ingebouwd voor oude browsers
+        var a = e.target;
+        while (a && a.tagName !== 'A' && a.nodeType === 1) {
+            a = a.parentNode;
+        }
+
+        if (!a || !a.href) return;
         var isExternal = a.hostname !== window.location.hostname;
         if (isExternal) window.dataLayer.push({ event: 'click', outbound: true, link_url: a.href });
         else window.dataLayer.push({ event: 'click', link_url: a.href, link_text: a.innerText });
@@ -286,4 +296,9 @@ sentEvents.add(eventId);
       return originalPush.apply(window.dataLayer, arguments);
     };
     window.dataLayer.forEach(function(obj) { if (obj && typeof obj === 'object' && obj.event) sendToSgtm(obj); });
-  })();
+
+    // Hulpfunctie toegevoegd omdat 'formatNum' werd aangeroepen maar niet was gedefinieerd in jouw snippet
+    function formatNum(n) {
+        return (typeof n === 'number') ? n : parseFloat(n) || 0;
+    }
+})();
