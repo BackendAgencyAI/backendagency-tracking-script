@@ -11,12 +11,15 @@
         return;
     }
 
-    // AANGEPAST: Set() vervangen door een Array voor oude browsers
     var sentEvents = [];
     var lastEventTime = Date.now();
     var isPaused = false;
 
     // --- HELPERS ---
+    function formatNum(n) {
+        return (typeof n === 'number') ? n : parseFloat(n) || 0;
+    }
+
     function findKey(obj, key, depth) {
       depth = depth || 0;
       if (depth > 5) return null; 
@@ -108,7 +111,6 @@
           eventId = (data.event || 'unknown_event') + '_' + Math.random().toString(36).substring(2, 10);
       }
 
-      // AANGEPAST: Array check in plaats van Set.has()
       if (sentEvents.indexOf(eventId) > -1) return; 
       sentEvents.push(eventId);
 
@@ -210,15 +212,24 @@
       }
 
       if (Array.isArray(items) && items.length > 0) {
-          bqData.items = JSON.stringify(items);
+          try {
+              bqData.items = JSON.stringify(items);
+          } catch (e) {
+              bqData.items = '[]';
+          }
       }
 
-      params.push('ep.extra_data=' + encodeURIComponent(JSON.stringify(bqData)));
+      var safeExtraData = "{}";
+      try {
+          safeExtraData = JSON.stringify(bqData);
+      } catch (e) {
+          safeExtraData = '{"error": "circular_reference_avoided"}';
+      }
+      params.push('ep.extra_data=' + encodeURIComponent(safeExtraData));
 
       // --- VERZENDING ---
       var fullUrl = serverBaseUrl.replace(/\/$/, "") + '/g/collect?' + params.join('&');
       
-      // AANGEPAST: XMLHttpRequest fallback voor oude browsers toegevoegd als sendBeacon en fetch falen
       if (navigator.sendBeacon) { 
           navigator.sendBeacon(fullUrl); 
       } else if (window.fetch) { 
@@ -228,14 +239,12 @@
               var xhr = new XMLHttpRequest();
               xhr.open('GET', fullUrl, true);
               xhr.send();
-          } catch (e) {} // Silent fail als netwerk zwaar verouderd is
+          } catch (e) {}
       }
       lastEventTime = Date.now();
     }
 
     // --- AUTO-TRACKERS ---
-
-    // AANGEPAST: Bestaande YouTube scripts niet meer weggooien
     var existingYTReady = window.onYouTubeIframeAPIReady;
     window.onYouTubeIframeAPIReady = function() {
         if (typeof existingYTReady === 'function') {
@@ -246,7 +255,11 @@
             if (frames[i].src.indexOf('youtube.com') > -1) {
                 new YT.Player(frames[i], { events: { 'onStateChange': function(e) {
                     var s = { '0': 'video_complete', '1': 'video_start' };
-                    if (s[e.data]) window.dataLayer.push({ event: s[e.data], video_title: e.target.getVideoData().title });
+                    if (s[e.data]) {
+                        try {
+                            window.dataLayer.push({ event: s[e.data], video_title: e.target.getVideoData().title });
+                        } catch(err) {}
+                    }
                 }}});
             }
         }
@@ -257,7 +270,6 @@
     }
 
     document.addEventListener('click', function(e) {
-        // AANGEPAST: Vervanger voor .closest() ingebouwd voor oude browsers
         var a = e.target;
         while (a && a.tagName !== 'A' && a.nodeType === 1) {
             a = a.parentNode;
@@ -265,40 +277,63 @@
 
         if (!a || !a.href) return;
         var isExternal = a.hostname !== window.location.hostname;
-        if (isExternal) window.dataLayer.push({ event: 'click', outbound: true, link_url: a.href });
-        else window.dataLayer.push({ event: 'click', link_url: a.href, link_text: a.innerText });
+        try {
+            if (isExternal) window.dataLayer.push({ event: 'click', outbound: true, link_url: a.href });
+            else window.dataLayer.push({ event: 'click', link_url: a.href, link_text: a.innerText });
+        } catch(err) {}
     }, true);
 
     document.addEventListener('focusout', function(e) {
-        if (['INPUT', 'SELECT', 'TEXTAREA'].indexOf(e.target.tagName) > -1) window.dataLayer.push({ event: 'form_abandonment', field_id: e.target.id || e.target.name || 'unknown' });
+        if (['INPUT', 'SELECT', 'TEXTAREA'].indexOf(e.target.tagName) > -1) {
+            try { window.dataLayer.push({ event: 'form_abandonment', field_id: e.target.id || e.target.name || 'unknown' }); } catch(err) {}
+        }
     }, true);
 
-    document.addEventListener('submit', function(e) { window.dataLayer.push({ event: 'form_submit', form_id: e.target.id || 'form' }); }, true);
+    document.addEventListener('submit', function(e) { 
+        try { window.dataLayer.push({ event: 'form_submit', form_id: e.target.id || 'form' }); } catch(err) {}
+    }, true);
 
     var sc = [25, 50, 75, 90];
     window.addEventListener('scroll', function() {
         var p = (document.documentElement.scrollTop || document.body.scrollTop) / (document.documentElement.scrollHeight - document.documentElement.clientHeight) * 100;
         sc = sc.filter(function(s) {
             if (p > s) {
-                window.dataLayer.push({ event: 'scroll', percent_scrolled: s });
+                try { window.dataLayer.push({ event: 'scroll', percent_scrolled: s }); } catch(err) {}
                 return false;
             }
             return true; 
         });
     }, {passive: true});
 
-    // --- INITIALISATIE ---
+    // --- INITIALISATIE (VEILIG GEMAAKT) ---
     if (!window.dataLayer) window.dataLayer = [];
     var originalPush = window.dataLayer.push;
+    
     window.dataLayer.push = function() {
       var args = Array.prototype.slice.call(arguments);
-      args.forEach(function(obj) { if (obj && typeof obj === 'object' && obj.event) sendToSgtm(obj); });
+      
+      args.forEach(function(obj) { 
+        if (obj && typeof obj === 'object' && obj.event) {
+            try {
+                sendToSgtm(obj);
+            } catch (error) {
+                console.error("BackendAgency Tracker waarschuwing - dataLayer afhandeling:", error);
+            }
+        } 
+      });
+      
+      // GTM wordt nu altijd correct uitgevoerd, ongeacht of het bovenstaande script faalt
       return originalPush.apply(window.dataLayer, arguments);
     };
-    window.dataLayer.forEach(function(obj) { if (obj && typeof obj === 'object' && obj.event) sendToSgtm(obj); });
+    
+    window.dataLayer.forEach(function(obj) { 
+        if (obj && typeof obj === 'object' && obj.event) {
+            try {
+                sendToSgtm(obj);
+            } catch (error) {
+                console.error("BackendAgency Tracker waarschuwing - initiële afhandeling:", error);
+            }
+        } 
+    });
 
-    // Hulpfunctie toegevoegd omdat 'formatNum' werd aangeroepen maar niet was gedefinieerd in jouw snippet
-    function formatNum(n) {
-        return (typeof n === 'number') ? n : parseFloat(n) || 0;
-    }
 })();
