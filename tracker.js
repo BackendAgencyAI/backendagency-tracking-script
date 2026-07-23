@@ -23,11 +23,8 @@
     function findKey(obj, key, depth) {
       depth = depth || 0;
       if (depth > 5) return null; 
-
       if (!obj || typeof obj !== 'object') return null;
-
       if (typeof obj.nodeType !== 'undefined' || obj === window) return null;
-
       if (obj[key] !== undefined) return obj[key];
       
       for (var k in obj) {
@@ -132,6 +129,10 @@
         'ul=' + (navigator.language || 'nl-nl').toLowerCase(), 'seg=1'
       ];
 
+      // FIX: Forceer de sessiedata in de Event Parameters zodat BQ deze direct pakt
+      params.push('ep.ga_session_id=' + encodeURIComponent(sessionId));
+      params.push('epn.ga_session_number=' + encodeURIComponent(sessionCount));
+
       if (window.location.search.indexOf('gtm_debug=1') > -1) params.push('_dbg=1');
       if (isNewSession) { params.push('_ss=1'); if (sessionCount === "1") params.push('_fv=1'); }
       
@@ -175,19 +176,14 @@
       if (Array.isArray(items)) {
           items.slice(0, 10).forEach(function(item, i) {
               var parts = [];
-              
               var id = item.item_id || item.id || item.item_sku || item.magento_sku || '';
               if (id) parts.push('id' + encodeURIComponent(id));
-              
               var nm = item.item_name || item.name || '';
               if (nm) parts.push('nm' + encodeURIComponent(nm));
-              
               if (item.price !== undefined) parts.push('pr' + formatNum(item.price));
               if (item.quantity !== undefined) parts.push('qt' + parseInt(item.quantity));
-              
               var ca1 = item.item_category || item.category || '';
               if (ca1) parts.push('ca1' + encodeURIComponent(ca1));
-
               var br = item.item_brand || item.brand || '';
               if (br) parts.push('br' + encodeURIComponent(br));
 
@@ -200,6 +196,13 @@
      // --- DUAL TRACKING ---
       var skip = ['event', 'gtm', 'ecommerce', 'eventModel', 'items', 'eventCallback', 'eventTimeout', 'eventSettingsTable', 'user', 'breadcrumb', 'debug_firestore_test'];
       var bqData = {}; 
+
+      // FIX: Zorg dat de cruciale e-commerce en sessiedata altijd in bqData (extra_data) belandt
+      bqData.ga_session_id = sessionId;
+      bqData.ga_session_number = sessionCount;
+      if (tid) bqData.transaction_id = tid;
+      if (val !== null && val !== undefined) bqData.value = formatNum(val);
+      if (cur) bqData.currency = cur;
 
       for (var key in data) {
         if (Object.prototype.hasOwnProperty.call(data, key) && skip.indexOf(key) === -1) {
@@ -322,7 +325,6 @@
         } 
       });
       
-      // GTM wordt nu altijd correct uitgevoerd, ongeacht of het bovenstaande script faalt
       return originalPush.apply(window.dataLayer, arguments);
     };
     
