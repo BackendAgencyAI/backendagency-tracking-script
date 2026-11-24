@@ -159,6 +159,10 @@
     }
 
     // --- COOKIE HELPERS ---
+    function writeCookie(name, value, expires, domainAttr) {
+      document.cookie = name + "=" + (value || "") + expires + "; path=/" + domainAttr + "; SameSite=Lax";
+    }
+
     function setCookie(name, value, minutes) {
       var expires = "";
       if (minutes) {
@@ -167,7 +171,10 @@
         expires = "; expires=" + date.toUTCString();
       }
       var domain = location.hostname.replace(/^www\./i, "");
-      document.cookie = name + "=" + (value || "") + expires + "; path=/; domain=." + domain + "; SameSite=Lax";
+      writeCookie(name, value, expires, "; domain=." + domain);
+      // Lukt een cookie op het hoofddomein niet (bijv. IP-adres of afwijkend domein),
+      // dan alleen op deze host proberen.
+      if (getCookie(name) !== String(value || "")) writeCookie(name, value, expires, "");
     }
 
     function getCookie(name) {
@@ -183,7 +190,25 @@
 
     function deleteCookie(name) {
       var domain = location.hostname.replace(/^www\./i, "");
-      document.cookie = name + "=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=." + domain + "; SameSite=Lax";
+      var past = "; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      writeCookie(name, "", past, "; domain=." + domain);
+      writeCookie(name, "", past, "");
+    }
+
+    // Kan dit script cookies schrijven én teruglezen? (Eén keer per pagina getest.)
+    // Zo niet, dan zou elk event een nieuwe sessie lijken: dan anoniem meten.
+    var cookiesOk = null;
+    function cookiesWritable() {
+      if (cookiesOk !== null) return cookiesOk;
+      try {
+        var probe = '_backendagency_ck';
+        setCookie(probe, '1', 1);
+        cookiesOk = getCookie(probe) === '1';
+        deleteCookie(probe);
+      } catch (e) {
+        cookiesOk = false;
+      }
+      return cookiesOk;
     }
 
     // =====================================================================
@@ -249,6 +274,12 @@
     var pendingSessionStart = false;
     var pendingFirstVisit = false;
 
+    function anonymousIdentity() {
+        pendingSessionStart = false;
+        pendingFirstVisit = false;
+        return { cid: tempClientId, sid: pageLoadId, sct: '1', persistent: false };
+    }
+
     function getIdentity() {
         if (!isGranted('analytics_storage')) {
             if (usedCookies) {
@@ -256,10 +287,11 @@
                 deleteCookie(COOKIE_CID); deleteCookie(COOKIE_SID); deleteCookie(COOKIE_SCT);
                 usedCookies = false;
             }
-            pendingSessionStart = false;
-            pendingFirstVisit = false;
-            return { cid: tempClientId, sid: pageLoadId, sct: '1', persistent: false };
+            return anonymousIdentity();
         }
+
+        // Toestemming, maar cookies werken niet (geblokkeerd of niet te zetten)
+        if (!cookiesWritable()) return anonymousIdentity();
 
         usedCookies = true;
 
@@ -456,6 +488,8 @@
       // Sessiedata ook als event parameters, zodat BQ deze direct pakt
       params.push('ep.ga_session_id=' + encodeURIComponent(identity.sid));
       params.push('epn.ga_session_number=' + encodeURIComponent(identity.sct));
+      // Geen vaste ID (geen toestemming of geen cookies): de server voegt deze hits samen
+      if (!identity.persistent) params.push('ep.ba_anon=1');
 
       if (isDebug) params.push('_dbg=1');
 
@@ -530,6 +564,7 @@
 
       bqData.ga_session_id = identity.sid;
       bqData.ga_session_number = identity.sct;
+      if (!identity.persistent) bqData.ba_anon = '1';
       if (tid !== null) bqData.transaction_id = tid;
       if (val !== null) bqData.value = val;
       if (cur) bqData.currency = cur;
