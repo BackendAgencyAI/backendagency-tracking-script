@@ -26,6 +26,8 @@
     var COOKIE_SID = '_backendagency_sess_id';
     var COOKIE_SCT = '_backendagency_sess_count';
     var TWO_YEARS_MIN = 1051200;
+    var COOKIE_OPPREF = '_backendagency_oppref';
+    var THIRTY_DAYS_MIN = 43200;
 
     // =====================================================================
     // HELPERS
@@ -323,6 +325,41 @@
         return { cid: cid, sid: sid, sct: sct, persistent: true };
     }
 
+    // =====================================================================
+    // CHATGPT ADS KLIK-ID (oppref)
+    // =====================================================================
+    // ChatGPT Ads zet ?oppref=... op de landingspagina. Met advertentie-toestemming
+    // bewaren we die 30 dagen in een eigen cookie, zodat een latere aankoop aan de
+    // klik gekoppeld kan worden. Zonder toestemming: niet bewaren, oude cookie weg.
+    function getUrlParam(name) {
+        var q = window.location.search.substring(1).split('&');
+        for (var i = 0; i < q.length; i++) {
+            var eq = q[i].indexOf('=');
+            var k = eq > -1 ? q[i].substring(0, eq) : q[i];
+            if (k === name) return eq > -1 ? q[i].substring(eq + 1) : '';
+        }
+        return null;
+    }
+
+    function rawDecode(s) {
+        try { return decodeURIComponent(s); } catch (e) { return s; }
+    }
+
+    function getOppref() {
+        var fromUrl = getUrlParam('oppref');
+        fromUrl = fromUrl ? rawDecode(fromUrl) : null;
+        if (!isGranted('ad_storage')) {
+            if (getCookie(COOKIE_OPPREF)) deleteCookie(COOKIE_OPPREF);
+            return fromUrl;
+        }
+        if (fromUrl) {
+            if (cookiesWritable()) setCookie(COOKIE_OPPREF, encodeURIComponent(fromUrl), THIRTY_DAYS_MIN);
+            return fromUrl;
+        }
+        var stored = getCookie(COOKIE_OPPREF);
+        return stored ? rawDecode(stored) : null;
+    }
+
     document.addEventListener('visibilitychange', function() {
         isPaused = document.hidden;
         if(!isPaused) lastEventTime = Date.now();
@@ -511,6 +548,10 @@
       if (engagementTime > 0 && engagementTime < 1800000) params.push('_et=' + engagementTime);
 
       params.push('ep.tenant_id=' + encodeURIComponent(tenantId));
+
+      // ChatGPT Ads klik-ID voor de server-tag (OpenAI Conversions API)
+      var oppref = getOppref();
+      if (oppref) params.push('ep.oppref=' + encodeURIComponent(oppref));
 
       if (tid !== null) params.push('ep.transaction_id=' + encodeURIComponent(tid));
       if (val !== null) {
