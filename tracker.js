@@ -28,6 +28,9 @@
     var TWO_YEARS_MIN = 1051200;
     var COOKIE_OPPREF = '_backendagency_oppref';
     var THIRTY_DAYS_MIN = 43200;
+    var COOKIE_ADCLICK = '_backendagency_adclick';
+    var NINETY_DAYS_MIN = 129600;
+    var AD_CLICK_KEYS = ['gclid', 'gbraid', 'wbraid'];
 
     // =====================================================================
     // HELPERS
@@ -360,6 +363,36 @@
         return stored ? rawDecode(stored) : null;
     }
 
+    // =====================================================================
+    // GOOGLE ADS KLIK-ID (gclid / gbraid / wbraid)
+    // =====================================================================
+    // Google Ads zet de klik-ID alleen op de landingspagina. De aankoop volgt
+    // later op een andere pagina; zonder klik-ID kan Google Ads de conversie niet
+    // aan de klik koppelen. Met advertentie-toestemming bewaren we de laatste
+    // klik-ID 90 dagen in een eigen cookie op het domein van de klant.
+    function getAdClick() {
+        var fromUrl = null;
+        for (var i = 0; i < AD_CLICK_KEYS.length && !fromUrl; i++) {
+            var v = getUrlParam(AD_CLICK_KEYS[i]);
+            if (v) fromUrl = { type: AD_CLICK_KEYS[i], id: rawDecode(v) };
+        }
+        if (!isGranted('ad_storage')) {
+            if (getCookie(COOKIE_ADCLICK)) deleteCookie(COOKIE_ADCLICK);
+            return fromUrl;
+        }
+        if (fromUrl) {
+            if (cookiesWritable()) setCookie(COOKIE_ADCLICK, encodeURIComponent(fromUrl.type + ':' + fromUrl.id), NINETY_DAYS_MIN);
+            return fromUrl;
+        }
+        var stored = getCookie(COOKIE_ADCLICK);
+        if (!stored) return null;
+        stored = rawDecode(stored);
+        var sep = stored.indexOf(':');
+        var type = sep > -1 ? stored.substring(0, sep) : '';
+        if (AD_CLICK_KEYS.indexOf(type) === -1) return null;
+        return { type: type, id: stored.substring(sep + 1) };
+    }
+
     document.addEventListener('visibilitychange', function() {
         isPaused = document.hidden;
         if(!isPaused) lastEventTime = Date.now();
@@ -552,6 +585,10 @@
       // ChatGPT Ads klik-ID voor de server-tag (OpenAI Conversions API)
       var oppref = getOppref();
       if (oppref) params.push('ep.oppref=' + encodeURIComponent(oppref));
+
+      // Google Ads klik-ID voor de server-tag (Google Ads conversies)
+      var adClick = getAdClick();
+      if (adClick && adClick.id) params.push('ep.ba_' + adClick.type + '=' + encodeURIComponent(adClick.id));
 
       if (tid !== null) params.push('ep.transaction_id=' + encodeURIComponent(tid));
       if (val !== null) {
